@@ -1,150 +1,150 @@
 ---
 name: project-orchestrator
-description: 大型项目自主规划与多子任务编排。当用户要求"自主规划并完成一个大型项目"、需要把大项目拆成多个子任务（子对话）并行/串行执行、监控子任务进度、或汇总子任务产物时触发。覆盖：项目分析、任务清单与 DAG 拆解、上下文长度预算、子任务 Automation 调度、看板监控、模型分级（简单任务降级省额度）、产物汇总。
+description: Autonomous planning and multi-subtask orchestration for large projects. Trigger when the user asks to "autonomously plan and complete a large project", needs a big project split into subtasks (sub-conversations) executed in parallel/serial, wants subtask progress monitoring, or needs deliverable aggregation. Covers: project analysis, task-list and DAG decomposition, context-length budgeting, subtask Automation dispatch, kanban monitoring, model tiering (downgrade simple tasks to save credits), and deliverable aggregation.
 ---
 
-<!-- Copyright (c) 2026 Alicifia (https://github.com/Alicifia). All rights reserved. Licensed under the MIT License — see LICENSE and NOTICE. -->
+<!-- Copyright (c) 2026 Alicifia (https://github.com/Alicifia). All rights reserved. Licensed under the MIT License - see LICENSE and NOTICE. -->
 
-# 项目总控 Orchestrator
+# Project Orchestrator
 
-把一个大型项目拆解成一组有依赖关系的子任务，每个子任务跑在一个独立的 `local_conversation` Automation（即一个独立子对话）里，主对话扮演"总控"：规划、派工、监控、汇总。
+Decompose a large project into a set of dependency-linked subtasks. Each subtask runs in its own `local_conversation` Automation (an independent sub-conversation), while the main conversation acts as the orchestrator: plan, dispatch, monitor, aggregate.
 
-## 何时使用
+## When to use
 
-- 用户明确要求"自主规划并完成大型项目"、"拆成子任务并行做"、"多 agent 协作完成 X"。
-- 项目规模明显超出单次对话能高质量完成的范围（交付物 ≥ 3 个、或预计需要多阶段串行）。
+- The user explicitly asks to "autonomously plan and complete a large project", "split this into parallel subtasks", or "have multiple agents collaborate on X".
+- The project clearly exceeds what a single conversation can deliver at high quality (3+ deliverables, or multiple sequential stages expected).
 
-小规模任务不要动用本流程，直接做。
+Do not use this workflow for small tasks - just do them directly.
 
-## 总览：六个阶段
-
-```
-P0 项目分析 → P1 任务拆解(DAG+上下文预算) → P2 建子任务(简报+Automation)
-→ P4 看板搭建（先于派工完成）→ P3 调度执行(并行/串行) → P5 汇总交付
-```
-
-所有编排状态文件放在项目根目录：
+## Overview: six phases
 
 ```
-<工作区>/orchestration/<项目slug>/
-  plan.json            # 任务 DAG，唯一事实来源（见 references/plan-schema.md）
-  briefs/<task-id>.md  # 每个子任务的自包含简报（见 references/brief-template.md）
-  status/<task-id>.json # 子任务进度心跳（见 references/status-board.md）
-  deliverables/        # 子任务产物（或记录产物绝对路径）
+P0 Project analysis -> P1 Task decomposition (DAG + context budget) -> P2 Create subtasks (briefs + Automations)
+-> P4 Board setup (completed BEFORE dispatch) -> P3 Dispatch & execution (parallel/serial) -> P5 Aggregation & delivery
+```
+
+All orchestration state files live under the project root:
+
+```
+<workspace>/orchestration/<project-slug>/
+  plan.json             # Task DAG, single source of truth (see references/plan-schema.md)
+  briefs/<task-id>.md   # Self-contained brief per subtask (see references/brief-template.md)
+  status/<task-id>.json # Subtask progress heartbeat (see references/status-board.md)
+  deliverables/         # Subtask outputs (or their absolute paths)
 ```
 
 ---
 
-## P0 项目分析
+## P0 Project analysis
 
-1. 与用户确认：项目目标、交付物清单、验收标准、截止时间、是否允许消耗额度跑子任务（**必须显式确认：运行子任务会消耗额度**，说明预计子任务数量后再继续）。
-2. 在工作区创建 `orchestration/<项目slug>/` 目录。
-3. 写 `plan.json` 的 `project` 段：目标、验收标准、创建时间。
+1. Confirm with the user: project goal, deliverables list, acceptance criteria, deadline, and whether credit consumption for subtasks is allowed (**explicit confirmation is required: running subtasks consumes credits** - state the expected subtask count before proceeding).
+2. Create `orchestration/<project-slug>/` in the workspace.
+3. Write the `project` section of `plan.json`: goal, acceptance criteria, creation time.
 
-## P1 任务拆解 + 上下文预算
+## P1 Task decomposition + context budget
 
-按项目规模拆，常见 3–12 个，大型项目可以更多（名额回收机制见 P2，总任务数不受名额上限约束）。每个子任务必须满足：**单一明确交付物、可独立验收、上下文可控**。
+Decompose by project size - typically 3-12 subtasks, more for very large projects (slot recycling in P2 means total task count is not capped). Every subtask must satisfy: **one clear deliverable, independently verifiable, context-bounded**.
 
-### 依赖关系
+### Dependencies
 
-- 在 `plan.json` 里为每个任务标 `dependsOn: [task-id, ...]`。
-- 只标真实的数据/产物依赖（B 需要 A 的输出文件），不要为"看起来有顺序"加依赖——无依赖的任务才能并行。
+- Mark `dependsOn: [task-id, ...]` for each task in `plan.json`.
+- Only record real data/artifact dependencies (B needs A's output file). Never add dependencies for superficial ordering - only dependency-free tasks can run in parallel.
 
-### 上下文长度预算（关键，防止子任务被压缩降智）
+### Context-length budgeting (critical - prevents subtask quality loss from context compression)
 
-子任务跑在独立对话里，上下文超限会被压缩，效果下降。派工前为每个任务做预算：
+Each subtask runs in an independent conversation; if its context overflows, compression kicks in and quality degrades. Budget before dispatch:
 
 ```
-估算tokens ≈ (简报大小 + 必读输入文件总字节数/2 + 预计输出tokens + 工具往返开销≈20k) × 1.5 安全系数
+estimated tokens = (brief size + required input bytes / 2 + expected output tokens + ~20k tool overhead) x 1.5 safety factor
 ```
 
-预算规则：
+Budget rules:
 
-- **估算 ≤ 100k tokens**：可以作为一个子任务。
-- **超过 100k**：二选一——
-  - 再拆成两个有先后关系的子任务（前一个把中间结论写入 `deliverables/` 文件，后一个读文件而非继承上下文）；
-  - 或在简报中明确"按需读取"：只给文件清单+绝对路径，让子任务自己选读，不把内容贴进简报。
-- **简报正文本身控制在 4k tokens 以内**：背景知识、上游结论一律落成文件，简报里只写绝对路径引用。子任务 Automation 的 prompt 更短——只给简报文件路径。
+- **Estimate <= 100k tokens**: fine as one subtask.
+- **Over 100k**: choose one -
+  - split into two sequential subtasks (the first writes intermediate results to `deliverables/`, the second reads files instead of inheriting context);
+  - or mandate "read on demand" in the brief: list files with absolute paths and let the subtask read selectively, never paste bulk content into the brief.
+- **Keep the brief body itself under 4k tokens**: background knowledge and upstream conclusions go into files; the brief references them by absolute path. The subtask Automation prompt is even shorter - just the brief file path.
 
-把每个任务的估算值写进 `plan.json` 的 `tokenBudget.estimated`，超限时在 `tokenBudget.note` 里记录处置方式。
+Record each task's estimate in `plan.json` under `tokenBudget.estimated`; when over budget, note the remediation in `tokenBudget.note`.
 
-### 模型分级
+### Model tiering
 
-为每个任务标 `tier`：
+Assign a `tier` to every task:
 
-- `standard`（默认）：创建 Automation 时**不显式传 modelAlias**，跟随系统默认模型——与主对话同级能力。复杂、需要判断/创作/代码的任务一律用这档。
-- `light`：简单、机械、低风险任务（格式转换、批量改名、模板化文案、数据搬运），用系统返回别名中含 `k2d6` 的模型（先用 `AutomationControl action:"listModels"` 取当前准确别名），减少额度消耗。
-- 拿不准就 `standard`。在 `plan.json` 记录每个任务的 `tier` 和理由。
+- `standard` (default): do NOT pass modelAlias when creating the Automation - it follows the system default model, same capability tier as the main conversation. Use this for anything requiring judgment, writing, or code.
+- `light`: simple, mechanical, low-risk tasks (format conversion, batch renames, templated copy, data shuffling) - use the alias containing `k2d6` returned by `AutomationControl action:"listModels"` to cut credit consumption.
+- When in doubt, pick `standard`. Record each task's `tier` and rationale in `plan.json`.
 
-## P2 创建子任务
+## P2 Create subtasks
 
-对每个任务：
+For each task:
 
-1. 写 `briefs/<task-id>.md`（模板见 references/brief-template.md）。简报必须自包含：目标、输入文件绝对路径、约束、交付物路径、验收标准、**进度上报要求**（让子任务在关键里程碑更新 `status/<task-id>.json`）。
-2. 创建子任务 Automation（每个任务一个）：
-   - `execution.kind: "agent"`, `mode: "local_conversation"`, `workspace: { "kind": "path", "path": "<项目工作区绝对路径>" }`（与主对话同一任务文件夹，产物集中）。
-   - prompt 保持短：让子任务读简报文件执行，并把结果写入指定路径。例：`"阅读 <abs>/briefs/T03.md 并严格执行其中的任务。完成后把交付物写到指定位置，并按简报要求更新 status/T03.json。"`
-   - `trigger: { "kind": "manual" }`——由总控显式派工，不要 schedule。
-   - `result: { "kind": "conversation" }`。
-   - 模型：按 P1 的 `tier` 决定省略或传 `modelAlias`。
-   - 长任务设 `timeoutMs`。
-3. 把返回的 `automationId` 写回 `plan.json` 对应任务。
-4. 创建前向用户做一次合并确认：子任务数量、并行方式、预计额度消耗、各任务模型档位。
+1. Write `briefs/<task-id>.md` (template in references/brief-template.md). The brief must be self-contained: goal, absolute input paths, constraints, deliverable paths, acceptance criteria, and **progress-reporting requirements** (the subtask updates `status/<task-id>.json` at milestones).
+2. Create the subtask Automation (one per task):
+   - `execution.kind: "agent"`, `mode: "local_conversation"`, `workspace: { "kind": "path", "path": "<project workspace absolute path>" }` (same folder as the main conversation, so outputs stay together).
+   - Keep the prompt short: read the brief file and execute. Example: `"Read <abs>/briefs/T03.md and execute it exactly. Write deliverables to the specified location and maintain status/T03.json as the brief requires."`
+   - `trigger: { "kind": "manual" }` - dispatched explicitly by the orchestrator, never scheduled.
+   - `result: { "kind": "conversation" }`.
+   - Model: omit or set `modelAlias` per the P1 `tier`.
+   - Set `timeoutMs` for long tasks.
+3. Write the returned `automationId` back into the task in `plan.json`.
+4. Before creating anything, give the user one combined confirmation: subtask count, parallelism, estimated credit consumption, and model tier per task.
 
-> 名额回收（重要）：每个**启用中**的子任务 Automation 占一个 cron job 名额，但 **disabled 状态保留全部 run 记录且不占名额**。因此总任务数不受名额上限约束，只有"同一时刻并行 + 等待条件触发的任务数"受可用名额限制：
-> - 子任务 run 到达 `succeeded`（或终态放弃）后，总控**立即 disable 它的 Automation** 释放名额，再继续创建/派发后续任务；run 记录与 conversationKey 仍可查。
-> - 更进一步可以"按需创建"：任务临近派工时才创建它的 Automation，而不是 P2 一次性全建——这样同时占用的名额 ≈ 最大并行宽度。
-> - 配了 condition 触发的任务在等待期间必须保持启用，会占名额；名额紧张的长链项目改用纯手动接力（主对话唤醒时推进）。
+> Slot recycling (important): each **enabled** subtask Automation occupies one cron-job slot, but a **disabled Automation keeps all run records and occupies no slot**. So total task count is not capped - only "tasks running in parallel + waiting on condition triggers at the same time" is limited by available slots:
+> - Once a subtask run reaches `succeeded` (or is abandoned at a terminal state), the orchestrator **immediately disables its Automation** to free the slot, then creates/dispatches the next tasks; run records and conversationKey remain queryable.
+> - Go further with "just-in-time creation": create a task's Automation only when it is about to be dispatched instead of all upfront in P2 - concurrent slot usage then roughly equals the maximum parallelism width.
+> - Tasks with condition triggers must stay enabled while waiting and do occupy a slot; for long chains on a tight slot budget, use pure manual handoff (advance when the main conversation wakes up).
 
-## P3 调度执行
+## P3 Dispatch & execution
 
-**先出看板，再派工**：进入本阶段前必须已完成 P4 的看板搭建（一次性约 1-2 分钟），让用户从"全部待办"开始就能看到实时进展；看板就绪后再开始派发。
+**Board first, dispatch second**: P4 board setup must be complete before entering this phase (one-off, ~1-2 minutes) so the user sees live progress starting from "all pending"; only start dispatching once the board is ready.
 
-调度循环（总控在主对话中执行）：
+Dispatch loop (executed by the orchestrator in the main conversation):
 
-1. 从 `plan.json` 找出 `status: "pending"` 且 `dependsOn` 全部 `succeeded` 的任务。
-2. **并行**：对这批任务同时调用 `AutomationControl action:"run"`（同一批互相独立，一次发完）。
-3. **串行依赖**：后继任务必须等前驱 run 到达 `succeeded` 才触发。轮询用 `listRuns` / `readRun`，不要 tight-loop——每次用户交互或间隔检查时查一轮即可。
-4. **全自动接力（可选，推荐长链使用）**：主对话只在用户发消息时醒来，纯手动模式下串行链会停在"等主对话被唤醒"。要无人值守推进，给后继任务的 Automation 配 `condition` 触发（默认每 10 分钟轮询一次 Python 条件）：条件读 `plan.json` 与 `status/`，仅当其全部前驱 `succeeded` 且自身仍 `pending` 时返回 true——前驱一成后继自动开跑。任务完成后立即 disable 该条件触发，防止空转。条件触发是 Automation 平台的内置能力，细节见 automation 技能的 `references/trigger-condition.md`。
-5. **失败处理**：run `failed`/`timeout` → `readRunLogs` 取证据，在 `plan.json` 记录 `attempts`，允许修简报后重跑 1 次；再失败则停下向用户报告，不要无限重试。
-6. **验证**：子任务报完成不算数——总控必须亲自检查交付物文件存在且内容达标（读文件，不是读子任务的自我汇报）。不达标打回重跑。
+1. In `plan.json`, find tasks with `status: "pending"` whose `dependsOn` are all `succeeded`.
+2. **Parallel**: call `AutomationControl action:"run"` for the whole independent batch at once (issue them together).
+3. **Serial dependencies**: a successor fires only after its predecessor run reaches `succeeded`. Poll with `listRuns` / `readRun` - no tight loops; check once per user interaction or periodic review.
+4. **Fully automatic handoff (optional, recommended for long chains)**: the main conversation only wakes on user messages, so in pure-manual mode a serial chain stalls waiting for the orchestrator to wake. For unattended progress, give the successor Automation a `condition` trigger (default: poll a Python predicate every 10 minutes): the predicate reads `plan.json` and `status/`, returning true only when all predecessors are `succeeded` and the task itself is still `pending` - the moment the predecessor finishes, the successor starts. Disable the condition trigger right after the task completes to prevent idle polling. Condition triggers are a built-in Automation capability; details live in the automation skill's `references/trigger-condition.md`.
+5. **Failure handling**: run `failed`/`timeout` -> get evidence via `readRunLogs`, record `attempts` in `plan.json`, allow one rerun after fixing the brief; if it fails again, stop and report to the user - never retry indefinitely.
+6. **Verification**: a subtask's self-report does not count - the orchestrator must personally check that deliverable files exist and meet the bar (read the files, not the self-report). Send back for rework if not.
 
-每完成一批就更新 `plan.json` 里的 `status`；对每个到达终态（succeeded / 放弃）的任务，**立即 disable 它的 Automation 释放名额**（记录保留，见 P2 名额回收），再继续创建/派发后续任务。
+After each batch, update `status` in `plan.json`; for every task reaching a terminal state (succeeded / abandoned), **immediately disable its Automation to free the slot** (records are kept - see P2 slot recycling), then create/dispatch follow-up tasks.
 
-## P4 看板监控
+## P4 Kanban monitoring
 
-**时机：P2 建完子任务 Automation 后、P3 首次派工前**，先把看板搭好并挂上画布——用户从第一个子任务启动起就有可视化进度。做法见 references/status-board.md。
+**Timing: after P2 creates the subtask Automations, before P3's first dispatch** - set up the board and mount it on a canvas first, so the user has visual progress from the very first subtask. See references/status-board.md.
 
-1. 用 Widget 技能创建一个任务看板 Widget（遵循 Kimi 设计系统）。
-2. 创建一个 Python 状态聚合 Automation（widget task）：读 `plan.json` + `status/*.json`，产出含任务列表/状态/进度/模型档位的 artifact。聚合是纯 Python，不跑模型，刷新成本极低——**不要**用 agent 子对话做定时监控（每次轮询都烧模型额度，比看板贵几个数量级）。
-3. 用 Binding 把 artifact 绑到 Widget 的 `main` slot。
-4. 聚合 Automation **必须用 interval 触发**（项目活跃期 15–30 分钟一次），并在搭好后先手动 run 一次让看板立即有数据。不要只用 manual——那样看板不会自己刷新。
-5. **默认把看板 Widget 放置到独立 Dashboard 画布**（Canvas.placeWidget，一项目一画布），让用户脱离对话单独查看；用户明确要求嵌在对话里时才只用 Widget.show。
-6. **新增子任务自动上板**：聚合器每次运行重新读 `plan.json`，总控后续追加/拆分出的新任务会在下一轮聚合自动出现在看板上，无需改看板或聚合器。
+1. Create a kanban Widget with the Widget skill (follow the Kimi design system).
+2. Create a Python status-aggregation Automation (widget task): read `plan.json` + `status/*.json` and produce an artifact with the task list / status / progress / model tier. Aggregation is pure Python with no model calls, so refresh costs almost nothing - **never** use an agent sub-conversation for periodic monitoring (each poll burns model credits, orders of magnitude more expensive than the board).
+3. Bind the artifact to the Widget's `main` slot with a Binding.
+4. The aggregation Automation **must use an interval trigger** (every 15-30 minutes while the project is active), and run it once manually right after setup so the board has data immediately. Never leave it manual-only - the board would never refresh itself.
+5. **Place the board Widget on a standalone Dashboard canvas by default** (Canvas.placeWidget, one canvas per project) so the user can watch it outside the conversation; use Widget.show alone only when the user explicitly wants it inline in the conversation.
+6. **New subtasks appear automatically**: the aggregator re-reads `plan.json` on every run, so tasks appended or re-split by the orchestrator show up on the board on the next aggregation - no changes to the board or aggregator needed.
 
-主对话随时可被问"进展如何"：读 `plan.json` + `status/` + 各 run 状态，用三五行说清：完成/进行/阻塞各哪些、当前在跑什么、下一步是什么。
+When asked "how's it going?", the main conversation reads `plan.json` + `status/` + run states and answers in three to five lines: what is done / in progress / blocked, what is running now, and what comes next.
 
-## P5 汇总交付
+## P5 Aggregation & delivery
 
-全部任务 `succeeded` 后：
+Once every task is `succeeded`:
 
-1. 逐个核对 `plan.json` 的 `deliverables` 路径，确认每个文件真实存在、内容达标（打开看，不凭记录）。
-2. 需要时读取子任务 run 的 `conversationKey` / transcript 了解过程结论。
-3. 给用户一份总结：项目目标达成情况、交付物清单（绝对路径 markdown 链接）、各子任务用时/模型档位/是否返工、遗留风险。
-4. 清理（先征得用户同意）：disable 或 delete 子任务 Automation 释放名额；停掉聚合 Automation 的 interval。编排文件保留在 `orchestration/` 备查。
+1. Check each `deliverables` path in `plan.json` one by one - confirm every file actually exists and meets the bar (open and read it; never trust the records).
+2. If needed, read subtask runs' `conversationKey` / transcripts for process conclusions.
+3. Deliver a summary to the user: goal achievement, deliverables list (markdown links with absolute paths), per-subtask duration / model tier / rework, and residual risks.
+4. Cleanup (ask the user first): disable or delete subtask Automations to free slots; stop the aggregation Automation's interval. Keep the orchestration files under `orchestration/` for reference.
 
-## 硬性规则
+## Hard rules
 
-- 先确认额度，再创建任何子任务 Automation。
-- 上下文预算先行：任何估算 > 100k tokens 的任务必须处置后才能派工。
-- 串行依赖严格等待前驱 `succeeded`，禁止凭"应该做完了"提前触发。
-- 子任务产物必须由总控亲自验证，不接受自我汇报。
-- 失败最多自动重试 1 次，之后必须问用户。
-- 名额回收：子任务到达终态后立即 disable 释放名额（disabled 保留记录、不占名额）；总任务数不受名额上限约束，受约束的只是同一时刻"并行中 + 等待条件触发"的任务数。
-- 所有路径用绝对路径；简报、状态、产物都落在 `orchestration/<项目slug>/` 内。
+- Confirm credits first, then create any subtask Automation.
+- Budget first: any task estimated over 100k tokens must be remediated before dispatch.
+- Serial dependencies strictly wait for predecessor `succeeded`; never fire early on "it should be done by now".
+- Subtask deliverables must be verified by the orchestrator personally; self-reports are not accepted.
+- At most one automatic retry on failure; after that, ask the user.
+- Slot recycling: disable a subtask's Automation immediately at terminal state (disabled keeps records, occupies no slot); total task count is uncapped - only "parallel + condition-waiting at the same time" is bounded.
+- All paths absolute; briefs, status, and deliverables live under `orchestration/<project-slug>/`.
 
-## 参考文件
+## Reference files
 
-- `references/plan-schema.md` — plan.json 完整字段定义
-- `references/brief-template.md` — 子任务简报模板
-- `references/status-board.md` — 状态心跳格式 + 看板 Widget / 聚合 Automation 搭建步骤
+- `references/plan-schema.md` - full plan.json field definitions
+- `references/brief-template.md` - subtask brief template
+- `references/status-board.md` - status heartbeat format + kanban Widget / aggregation Automation setup

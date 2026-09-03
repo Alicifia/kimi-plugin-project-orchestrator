@@ -1,36 +1,36 @@
-<!-- Copyright (c) 2026 Alicifia (https://github.com/Alicifia). All rights reserved. Licensed under the MIT License — see LICENSE and NOTICE. -->
+<!-- Copyright (c) 2026 Alicifia (https://github.com/Alicifia). All rights reserved. Licensed under the MIT License - see LICENSE and NOTICE. -->
 
-# 看板监控：状态心跳 + Widget + 聚合 Automation
+# Kanban monitoring: status heartbeat + Widget + aggregation Automation
 
-## 1. 状态心跳文件
+## 1. Status heartbeat file
 
-`orchestration/<项目slug>/status/<task-id>.json`，由子任务按简报要求更新：
+`orchestration/<project-slug>/status/<task-id>.json`, updated by the subtask as its brief requires:
 
 ```json
 {
   "taskId": "T03",
   "status": "running",
   "progress": 40,
-  "note": "正在生成第三章",
+  "note": "Drafting chapter 3",
   "updatedAt": "2026-09-03T21:10:00+08:00"
 }
 ```
 
-`status` 取值：`running` / `succeeded` / `failed` / `blocked`。`progress` 0–100。
-子任务不更新时，总控以 run 记录为准（`pending`/`running`/终态）补写心跳。
+`status` values: `running` / `succeeded` / `failed` / `blocked`. `progress` is 0-100.
+If a subtask fails to report, the orchestrator backfills the heartbeat from run records (`pending`/`running`/terminal).
 
-## 2. 聚合 Automation（widget task，Python 执行）
+## 2. Aggregation Automation (widget task, Python execution)
 
-创建一个 Python Automation：
+Create a Python Automation:
 
-- `trigger`：项目活跃期 `{ "kind": "interval", "every": "20m" }`；或 `manual` 由总控刷新。
-- `execution.kind: "code"`, `runtime: "python"`，入口逻辑（写入 create 返回的 codeEntry 路径）：
+- `trigger`: `{ "kind": "interval", "every": "20m" }` while the project is active; or `manual` refreshed by the orchestrator.
+- `execution.kind: "code"`, `runtime: "python"`; entry logic (write to the codeEntry path returned by create):
 
 ```python
 import json, os, glob
 
 def run(ctx):
-    root = r"<abs>/orchestration/<slug>"   # 创建时替换成真实路径
+    root = r"<abs>/orchestration/<slug>"   # substitute the real path at creation time
     with open(os.path.join(root, "plan.json"), encoding="utf-8") as f:
         plan = json.load(f)
     beats = {}
@@ -61,20 +61,20 @@ def run(ctx):
     }}
 ```
 
-- `result.kind: "artifact"`，schema 与上面返回结构对应（`properties` 含 `projectTitle/total/done/tasks`，`tasks.items` 含上述字段，`additionalProperties: true`）。
+- `result.kind: "artifact"`, with a schema matching the structure above (`properties` include `projectTitle/total/done/tasks`; `tasks.items` carry the fields above; `additionalProperties: true`).
 
-## 3. 看板 Widget
+## 3. Kanban Widget
 
-用 Widget 技能创建（先读 widgetdesign 遵循 Kimi 设计系统），`slots.main` 的数据形态与上面 artifact 一致。界面建议：
+Create it with the Widget skill (read widgetdesign first and follow the Kimi design system); `slots.main` matches the artifact shape above. Suggested layout:
 
-- 顶部：项目标题 + 总进度（done/total 进度条）。
-- 主体：按状态分栏的看板（待办 / 进行中 / 已完成 / 失败阻塞），每张卡片显示任务 id、标题、进度条、模型档位角标（standard/light）、最新 note。
-- 失败/阻塞用醒目但克制的警示色。
+- Header: project title + overall progress (done/total progress bar).
+- Body: kanban columns by status (pending / running / done / failed-blocked); each card shows task id, title, progress bar, model-tier badge (standard/light), and the latest note.
+- Use a visible but restrained warning color for failed/blocked.
 
 ## 4. Binding
 
-用 Binding 技能把聚合 Automation 的 artifact 绑到 Widget 的 `main` slot。之后聚合每次成功运行，看板自动刷新；总控在关键节点也可手动 `run` 一次立即刷新。
+Use the Binding skill to bind the aggregation Automation's artifact to the Widget's `main` slot. Every successful aggregation run then refreshes the board automatically; the orchestrator can also `run` it manually at key moments for an instant refresh.
 
-## 5. 项目结束后
+## 5. After the project ends
 
-P5 阶段经用户确认后：停掉 interval（disable 聚合 Automation），看板留作存档或随 Widget 一并删除。
+In P5, with user confirmation: stop the interval (disable the aggregation Automation); keep the board as an archive or delete it together with the Widget.

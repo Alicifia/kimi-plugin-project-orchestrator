@@ -1,10 +1,10 @@
 ---
 name: project-orchestrator
-description: 启动大型项目编排：分析项目、拆解子任务、并行/串行调度子对话执行、看板监控、汇总产物
+description: Kick off large-project orchestration - analyze the project, decompose subtasks, dispatch sub-conversations in parallel/serial, monitor via kanban board, and aggregate deliverables
 ---
 
-<!-- Copyright (c) 2026 Alicifia (https://github.com/Alicifia). All rights reserved. Licensed under the MIT License — see LICENSE and NOTICE. -->
+<!-- Copyright (c) 2026 Alicifia (https://github.com/Alicifia). All rights reserved. Licensed under the MIT License - see LICENSE and NOTICE. -->
 
-调用 `project-orchestrator` 技能，对用户给出的项目启动 P0 项目分析阶段：先与用户确认目标、交付物、验收标准和额度消耗，然后按技能流程依次完成任务拆解（含上下文预算与模型分级）、子任务创建、调度执行、看板监控与产物汇总。
+Invoke the `project-orchestrator` skill and start phase P0 (project analysis) for the project given by the user: first confirm goals, deliverables, acceptance criteria, and credit consumption with the user, then follow the skill workflow through task decomposition (with context budgeting and model tiering), subtask creation, dispatch, kanban monitoring, and final aggregation.
 
-项目描述：$ARGUMENTS
+Project description: $ARGUMENTS
