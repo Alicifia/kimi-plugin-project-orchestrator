@@ -20,7 +20,7 @@ description: 大型项目自主规划与多子任务编排。当用户要求"自
 
 ```
 P0 项目分析 → P1 任务拆解(DAG+上下文预算) → P2 建子任务(简报+Automation)
-→ P3 调度执行(并行/串行) → P4 看板监控 → P5 汇总交付
+→ P4 看板搭建（先于派工完成）→ P3 调度执行(并行/串行) → P5 汇总交付
 ```
 
 所有编排状态文件放在项目根目录：
@@ -98,6 +98,8 @@ P0 项目分析 → P1 任务拆解(DAG+上下文预算) → P2 建子任务(简
 
 ## P3 调度执行
 
+**先出看板，再派工**：进入本阶段前必须已完成 P4 的看板搭建（一次性约 1-2 分钟），让用户从"全部待办"开始就能看到实时进展；看板就绪后再开始派发。
+
 调度循环（总控在主对话中执行）：
 
 1. 从 `plan.json` 找出 `status: "pending"` 且 `dependsOn` 全部 `succeeded` 的任务。
@@ -111,12 +113,14 @@ P0 项目分析 → P1 任务拆解(DAG+上下文预算) → P2 建子任务(简
 
 ## P4 看板监控
 
-项目启动后立刻建监控看板（用户和主对话都能看），做法见 references/status-board.md：
+**时机：P2 建完子任务 Automation 后、P3 首次派工前**，先把看板搭好并挂上画布——用户从第一个子任务启动起就有可视化进度。做法见 references/status-board.md。
 
 1. 用 Widget 技能创建一个任务看板 Widget（遵循 Kimi 设计系统）。
-2. 创建一个 Python 状态聚合 Automation（widget task）：读 `plan.json` + `status/*.json`，产出含任务列表/状态/进度/模型档位的 artifact。
+2. 创建一个 Python 状态聚合 Automation（widget task）：读 `plan.json` + `status/*.json`，产出含任务列表/状态/进度/模型档位的 artifact。聚合是纯 Python，不跑模型，刷新成本极低——**不要**用 agent 子对话做定时监控（每次轮询都烧模型额度，比看板贵几个数量级）。
 3. 用 Binding 把 artifact 绑到 Widget 的 `main` slot。
-4. 聚合 Automation 用 interval 触发（项目活跃期 15–30 分钟一次），或由总控在关键节点手动 run 刷新。
+4. 聚合 Automation **必须用 interval 触发**（项目活跃期 15–30 分钟一次），并在搭好后先手动 run 一次让看板立即有数据。不要只用 manual——那样看板不会自己刷新。
+5. **默认把看板 Widget 放置到独立 Dashboard 画布**（Canvas.placeWidget，一项目一画布），让用户脱离对话单独查看；用户明确要求嵌在对话里时才只用 Widget.show。
+6. **新增子任务自动上板**：聚合器每次运行重新读 `plan.json`，总控后续追加/拆分出的新任务会在下一轮聚合自动出现在看板上，无需改看板或聚合器。
 
 主对话随时可被问"进展如何"：读 `plan.json` + `status/` + 各 run 状态，用三五行说清：完成/进行/阻塞各哪些、当前在跑什么、下一步是什么。
 
