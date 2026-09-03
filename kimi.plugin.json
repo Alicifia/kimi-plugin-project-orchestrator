@@ -1,0 +1,21 @@
+{
+  "$schema": "https://catalog.msh.team/misc/kimi.plugin.schema.json",
+  "name": "project-orchestrator",
+  "version": "0.1.0",
+  "description": "大型项目自主规划与多子任务编排：分析项目、拆解任务、按依赖关系并行/串行调度多个子任务对话，看板监控进度，简单子任务自动降级模型省额度，全部完成后汇总产物。",
+  "keywords": ["项目规划", "任务拆解", "多子任务", "并行编排", "orchestrator", "project planning"],
+  "author": "Alicifia",
+  "license": "MIT",
+  "skillInstructions": "当用户要求自主规划并完成大型项目、拆解子任务并行/串行执行、监控子任务进度或汇总子任务产物时，加载 project-orchestrator 技能并严格按 P0-P5 阶段流程执行。",
+  "interface": {
+    "displayName": "项目总控 Orchestrator",
+    "shortDescription": "在 Kimi 里使用 项目总控 Orchestrator",
+    "longDescription": "大型项目自主规划与多子任务编排：分析项目、拆解任务、按依赖关系并行/串行调度多个子任务对话，看板监控进度，简单子任务自动降级模型省额度，全部完成后汇总产物。",
+    "developerName": "Alicifia",
+    "websiteURL": "",
+    "iconUrl": "",
+    "category": "PRODUCTIVITY"
+  },
+  "skills": "./skills/",
+  "commands": "./commands/"
+}
