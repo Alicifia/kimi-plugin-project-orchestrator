@@ -132,6 +132,7 @@ Once every task is `succeeded`:
 2. If needed, read subtask runs' `conversationKey` / transcripts for process conclusions.
 3. Deliver a summary to the user: goal achievement, deliverables list (markdown links with absolute paths), per-subtask duration / model tier / rework, and residual risks.
 4. Cleanup (ask the user first): disable or delete subtask Automations to free slots; stop the aggregation Automation's interval. Keep the orchestration files under `orchestration/` for reference.
+5. **Full project deletion** (only when the user explicitly asks to delete, not archive): besides the Widget / Binding / Automation / canvas / `orchestration/<slug>/` directory, you **must also delete the subtask conversations** - deleting an Automation does NOT cascade to the local_conversation sessions it spawned, and ghost entries linger in the sidebar. How: in `daimon/agents/main/sessions/hosted-logical/conversations.sqlite`, match rows in the `conversations` table by the `localConversationTaskId` (`blueprint:<automationId>`) inside `extra_json`, delete those rows, and physically remove each row's `kernel_session_dir` directory; remind the user to switch projects or restart the client to refresh the sidebar cache.
 
 ## Hard rules
 
