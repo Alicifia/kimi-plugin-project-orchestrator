@@ -1,7 +1,7 @@
 {
   "$schema": "https://catalog.msh.team/misc/kimi.plugin.schema.json",
   "name": "project-orchestrator",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Autonomous planning and multi-subtask orchestration for large projects: analyze the project, decompose tasks, dispatch parallel/serial subtask conversations by dependency, monitor progress on a kanban board, downgrade simple subtasks to a lighter model to save credits, and summarize deliverables when done.",
   "keywords": ["project planning", "task decomposition", "multi-agent", "parallel orchestration", "orchestrator", "subtask"],
   "author": "Alicifia",

@@ -46,6 +46,6 @@ Path: `orchestration/<project-slug>/plan.json`. The orchestrator updates it at t
 - `id`: `T01`, `T02`... numbered in creation order, immutable afterwards.
 - `dependsOn`: real artifact dependencies only. Empty array = can run in parallel immediately.
 - `status`: maintained by the orchestrator; `running` means dispatched but not terminal; `blocked` means a predecessor failed.
-- `tier`: `standard` omits modelAlias (follows the system default); `light` uses the alias containing `k2d6` returned by `listModels`.
+- `tier`: `standard` omits modelAlias (follows the system default); `light` picks the model dynamically from `listModels`: prefer an alias containing `k2d8`, falling back to `defaultModelAlias` if none matches.
 - `attempts`: capped at 2 (first run + 1 retry); at the cap, ask the user.
 - Absolute paths only throughout.

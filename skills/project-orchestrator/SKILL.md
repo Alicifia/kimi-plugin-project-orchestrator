@@ -73,7 +73,7 @@ Record each task's estimate in `plan.json` under `tokenBudget.estimated`; when o
 Assign a `tier` to every task:
 
 - `standard` (default): do NOT pass modelAlias when creating the Automation - it follows the system default model, same capability tier as the main conversation. Use this for anything requiring judgment, writing, or code.
-- `light`: simple, mechanical, low-risk tasks (format conversion, batch renames, templated copy, data shuffling) - use the alias containing `k2d6` returned by `AutomationControl action:"listModels"` to cut credit consumption.
+- `light`: simple, mechanical, low-risk tasks (format conversion, batch renames, templated copy, data shuffling) - pick the model dynamically via `AutomationControl action:"listModels"`: prefer an alias containing `k2d8` (the current default, `k2d8-preview`, is cheaper than the standard tier); if no alias matches `k2d8`, fall back to `defaultModelAlias`. Write the actual alias chosen into `plan.json`'s `modelAlias` field to cut credit consumption.
 - When in doubt, pick `standard`. Record each task's `tier` and rationale in `plan.json`.
 
 ## P2 Create subtasks
